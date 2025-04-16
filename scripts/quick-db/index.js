@@ -1,83 +1,135 @@
 // Script example for ScriptAPI
 // Author: Nperma <https://github.com/nperma>
 // Project: https://github.com/JaylyDev/ScriptAPI
-import { world, World } from "@minecraft/server";
 
-const DATABASE_PREFIX = "\u0235\u0235";
+import { world,system, World } from '@minecraft/server';
+
+const DATABASE_PREFIX = '\u0235\u0235';
 
 const {
-    getDynamicProperty: GET,
-    setDynamicProperty: SET,
-    getDynamicPropertyIds: IDS
+	getDynamicProperty: GET,
+	setDynamicProperty: SET,
+	getDynamicPropertyIds: IDS
 } = World.prototype;
 
-//adapt code to JalyDev/scriptAPI
 class QuickDB {
-    #identifier;
-    constructor(id) {
-        this.#identifier = `${DATABASE_PREFIX}${id}${DATABASE_PREFIX}`;
-    }
+	#identifier;
+	__cache = {};
 
-    get size() {
-        return IDS.call(world).filter((id) => id.startsWith(this.#identifier))
-            .length;
-    }
+	/**
+	 * @param {string} id - Unique database identifier.
+	 */
+	constructor(id) {
+		if (typeof id !== 'string' || !id.trim()) {
+			throw new Error('Invalid database ID');
+		}
+		this.#identifier = `${DATABASE_PREFIX}${id}${DATABASE_PREFIX}`;
 
-    has(key) {
-        return !!GET.call(world, `${this.#identifier}${key}`);
-    }
+		for (const keyFull of this.getIds()) {
+			const key = keyFull.replace(this.#identifier, '');
+			let value;system.run(()=>{value=GET.call(world, keyFull);})
+			this.__cache[key] = JSON.parse(value);
+		}
+	}
 
-    get(key) {
-        return this.has(key)
-            ? JSON.parse(GET.call(world, `${this.#identifier}${key}`))
-            : undefined;
-    }
+	/** @returns {number} */
+	get size() {
+		return this.keys().length;
+	}
 
-    set(key, value) {
-        if (typeof key !== "string") return false;
-        SET.call(world, `${this.#identifier}${key}`, JSON.stringify(value));
-        return true;
-    }
+	/** @returns {string[]} */
+	keys() {
+		return Object.keys(this.__cache);
+	}
 
-    delete(key) {
-        if (!this.has(key)) return false;
-        SET.call(world, `${this.#identifier}${key}`, undefined);
-        return true;
-    }
+	/** @returns {any[]} */
+	values() {
+		return Object.values(this.__cache);
+	}
 
-    keys() {
-        return this.#UIDX("keys");
-    }
+	/** @returns {[string, any][]} */
+	entries() {
+		return Object.entries(this.__cache);
+	}
 
-    values() {
-        return this.#UIDX("values");
-    }
+	/**
+	 * Stores a key-value pair.
+	 * @param {string} key
+	 * @param {any} value
+	 * @returns {void}
+	 */
+	set(key, value) {
+		if (typeof key !== 'string' || !key.trim()) throw new Error('Key must be a non-empty string');
+		system.run(()=>SET.call(world, this.#identifier + key, JSON.stringify(value)));
+		this.__cache[key] = value;
+	}
 
-    entries() {
-        return this.#UIDX("entries");
-    }
+	/**
+	 * Deletes a key.
+	 * @param {string} key
+	 * @returns {boolean}
+	 */
+	delete(key) {
+		if (!this.has(key)) return false;
+		system.run(()=>SET.call(world, this.#identifier + key));
+		delete this.__cache[key];
+		return true;
+	}
 
-    #UIDX(type) {
-        const ids = IDS.call(world);
-        const result = [];
+	/**
+	 * Retrieves a value.
+	 * @param {string} key
+	 * @returns {any}
+	 */
+	get(key) {
+		if (typeof key !== 'string' || !key.trim()) throw new Error('Key must be a non-empty string');
+		return this.__cache[key];
+	}
 
-        for (const id of ids) {
-            if (!id.startsWith(this.#identifier)) continue;
+	/**
+	 * Checks if a key exists.
+	 * @param {string} key
+	 * @returns {boolean}
+	 */
+	has(key) {
+		return key in this.__cache;
+	}
 
-            const key = id.replace(this.#identifier, "");
-            if (type === "keys") {
-                result.push(key);
-            } else if (type === "values") {
-                const value = JSON.parse(this.get(key));
-                result.push(value);
-            } else if (type === "entries") {
-                const value = JSON.parse(this.get(key));
-                result.push([key, value]);
-            }
-        }
+	/** @returns {string[]} */
+	static get ids() {
+	  let keys;
+	  system.run(() =>{
+	    keys=IDS.call(world)
+				.filter((id) => id.startsWith(DATABASE_PREFIX))
+				.map((k) => k.slice(DATABASE_PREFIX.length).split(DATABASE_PREFIX)[0]);
+	  });
+		return [...new Set(
+			keys
+		)];
+	}
 
-        return result;
-    }
+	/** @returns {string[]} */
+	getIds() {
+	  let result;system.run(()=>{result=IDS.call(world).filter((id) => id.startsWith(this.#identifier));});
+		return result;
+	}
+
+	/** Clears the database. */
+	clear() {
+		for (const key of this.keys()) {
+			this.delete(key);
+		}
+		this.__cache = {};
+	}
+
+	/** Clears all databases globally. */
+	static clearAll() {
+	  let keys;system.run(()=>{keys=IDS.call(world).filter((id) => id.startsWith(DATABASE_PREFIX))});
+		for (const real_id of keys) {
+			system.run(()=>SET.call(world, real_id));
+		}
+	}
 }
 
 export default QuickDB;
+export { QuickDB };
